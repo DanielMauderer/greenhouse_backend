@@ -2,18 +2,22 @@ use crate::diary::{service, Result};
 use crate::AppState;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use greenhouse_core::data_storage_service_dto::diary_dtos::post_diary_entry::PostDiaryEntryDtoRequest;
+use greenhouse_core::data_storage_service_dto::diary_dtos::post_diary_tag::PostDiaryTagDtoRequest;
 use greenhouse_core::data_storage_service_dto::diary_dtos::put_diary_entry::PutDiaryEntryDtoRequest;
 use uuid::Uuid;
 
 pub(crate) fn routes(state: AppState) -> Router {
     Router::new()
         .route("/", post(create_diary_entry))
+        .route("/tags/:tag_name", get(search_entries_by_tag))
         .route("/:id", put(update_diary_entry))
         .route("/:id", get(get_diary_entry))
         .route("/:start/:end", get(get_diary))
+        .route("/:id/tags", post(add_tag_to_entry))
+        .route("/:id/tags/:tag_name", delete(remove_tag_from_entry))
         .with_state(state)
 }
 
@@ -53,5 +57,37 @@ pub(crate) async fn get_diary(
 ) -> Result<impl IntoResponse> {
     let diary =
         service::get_diary(&config.service_addresses.data_storage_service, start, end).await?;
+    Ok(Json(diary))
+}
+
+#[axum::debug_handler]
+pub(crate) async fn add_tag_to_entry(
+    State(AppState { config }): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<PostDiaryTagDtoRequest>,
+) -> Result<impl IntoResponse> {
+    let entry =
+        service::add_tag(&config.service_addresses.data_storage_service, id, body.tag_name)
+            .await?;
+    Ok(Json(entry))
+}
+
+#[axum::debug_handler]
+pub(crate) async fn remove_tag_from_entry(
+    State(AppState { config }): State<AppState>,
+    Path((id, tag_name)): Path<(Uuid, String)>,
+) -> Result<impl IntoResponse> {
+    let entry =
+        service::remove_tag(&config.service_addresses.data_storage_service, id, tag_name).await?;
+    Ok(Json(entry))
+}
+
+#[axum::debug_handler]
+pub(crate) async fn search_entries_by_tag(
+    State(AppState { config }): State<AppState>,
+    Path(tag_name): Path<String>,
+) -> Result<impl IntoResponse> {
+    let diary =
+        service::search_by_tag(&config.service_addresses.data_storage_service, tag_name).await?;
     Ok(Json(diary))
 }
