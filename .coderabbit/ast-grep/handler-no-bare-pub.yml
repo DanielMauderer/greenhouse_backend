@@ -1,0 +1,15 @@
+id: handler-no-bare-pub
+language: rust
+severity: error
+message: |
+  Functions in router files MUST be `pub(crate) async fn`, never bare `pub async fn`.
+  Handlers are not part of any public API surface. See
+  `services/auth_service/src/router/auth_router.rs`. Companion rule
+  `handler-must-have-debug-handler.yml` enforces `#[axum::debug_handler]` on `pub(crate)`
+  handlers — this rule catches the visibility mistake independently of the attribute.
+rule:
+  pattern: |
+    pub async fn $NAME($$$) $$$
+files:
+  - "services/*/src/router/**/*.rs"
+  - "api/*/src/**/router.rs"
