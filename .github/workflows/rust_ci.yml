@@ -52,3 +52,19 @@ jobs:
         run: typos
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run security audit
+        # RUSTSEC-2025-0111: tokio-tar PAX header flaw. Transitive dev-only dep
+        # via testcontainers->bollard. Not in production binaries. No upstream
+        # patch exists yet; ignore until bollard migrates to astral-tokio-tar.
+        run: cargo audit --ignore RUSTSEC-2025-0111
