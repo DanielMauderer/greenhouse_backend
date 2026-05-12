@@ -1,4 +1,8 @@
-use super::{schema::diary_entry, Error, Result};
+use super::{
+    diary_tag::DiaryTag,
+    schema::{diary_entry, diary_entry_tag, diary_tag},
+    Error, Result,
+};
 use crate::Pool;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -93,6 +97,67 @@ impl DiaryEntry {
         Ok(())
     }
 
+    pub async fn add_tag(&self, tag_name: &str, pool: &Pool) -> Result<()> {
+        let tag = DiaryTag::find_or_create(tag_name, pool).await?;
+        let mut conn = pool.get().await.map_err(|e| {
+            sentry::capture_error(&e);
+            Error::DatabaseConnection
+        })?;
+        diesel::insert_into(diary_entry_tag::table)
+            .values((
+                diary_entry_tag::diary_entry_id.eq(self.id),
+                diary_entry_tag::diary_tag_id.eq(tag.id),
+            ))
+            .on_conflict_do_nothing()
+            .execute(&mut conn)
+            .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                Error::CreationError
+            })?;
+        Ok(())
+    }
+
+    pub async fn remove_tag(&self, tag_name: &str, pool: &Pool) -> Result<()> {
+        let mut conn = pool.get().await.map_err(|e| {
+            sentry::capture_error(&e);
+            Error::DatabaseConnection
+        })?;
+        let tag_id = diary_tag::table
+            .filter(diary_tag::name.eq(tag_name))
+            .select(diary_tag::id)
+            .first::<Uuid>(&mut conn)
+            .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                Error::FindError
+            })?;
+        diesel::delete(
+            diary_entry_tag::table
+                .filter(diary_entry_tag::diary_entry_id.eq(self.id))
+                .filter(diary_entry_tag::diary_tag_id.eq(tag_id)),
+        )
+        .execute(&mut conn)
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            Error::CreationError
+        })?;
+        Ok(())
+    }
+
+    pub async fn get_tags(&self, pool: &Pool) -> Result<Vec<DiaryTag>> {
+        DiaryTag::get_tags_for_entry(self.id, pool).await
+    }
+
+    pub async fn into_response_with_tags(self, pool: &Pool) -> Result<DiaryEntryResponseDto> {
+        let tags = self.get_tags(pool).await?;
+        let tag_names: Vec<String> = tags.into_iter().map(|t| t.name).collect();
+        let mut dto: DiaryEntryResponseDto = self.into();
+        dto.tags = tag_names;
+        Ok(dto)
+    }
+
     pub async fn delete(&self, pool: &Pool) -> Result<()> {
         let mut conn: bb8::PooledConnection<
             '_,
@@ -124,6 +189,7 @@ impl From<DiaryEntry> for DiaryEntryResponseDto {
             content: val.content,
             created_at: val.created_at.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string(),
             updated_at: val.updated_at.format("%Y-%m-%dT%H:%M:%S%.fZ").to_string(),
+            tags: vec![],
         }
     }
 }
